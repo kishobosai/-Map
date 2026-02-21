@@ -41,46 +41,50 @@
   </div>
 
   <!-- タイトル・説明パネル (左上) -->
-  <div class="absolute top-4 left-4 z-[1000] bg-white/95 backdrop-blur-md p-5 rounded-2xl shadow-xl border border-gray-100 max-w-[320px]">
-    <h1 class="text-xl font-bold text-gray-800 flex items-center gap-2 mb-3">
-      <i data-lucide="map" class="w-6 h-6 text-red-500"></i>
-      どこでも北海道マップ
+  <div class="absolute top-4 left-4 z-[1000] bg-white/95 backdrop-blur-md p-3 sm:p-5 rounded-xl sm:rounded-2xl shadow-xl border border-gray-100 max-w-[55%] sm:max-w-[320px]">
+    <h1 class="text-sm sm:text-xl font-bold text-gray-800 flex items-center gap-1.5 sm:gap-2 sm:mb-3">
+      <i data-lucide="map" class="w-4 h-4 sm:w-6 sm:h-6 text-red-500 shrink-0"></i>
+      <span class="truncate">どこでも北海道マップ</span>
     </h1>
-    <p class="text-sm text-gray-600 mb-4 leading-relaxed">
-      地図をドラッグすると、画面中央に北海道がついてきます。世界中の様々な地域と実際の大きさを比べてみましょう。
-    </p>
-    <div class="flex items-start gap-2 text-xs text-blue-800 bg-blue-50/80 p-3 rounded-xl border border-blue-100">
-      <i data-lucide="info" class="w-4 h-4 shrink-0 mt-0.5 text-blue-500"></i>
-      <p class="leading-relaxed">
-        メルカトル図法の特性を完全再現。赤道に近づくほど小さくなり、極地に近づくほど巨大化し、さらに図形自体も歪みます。
+    <div class="hidden sm:block">
+      <p class="text-sm text-gray-600 mb-4 leading-relaxed">
+        地図をドラッグすると、画面中央に北海道がついてきます。世界中の様々な地域と実際の大きさを比べてみましょう。
       </p>
+      <div class="flex items-start gap-2 text-xs text-blue-800 bg-blue-50/80 p-3 rounded-xl border border-blue-100">
+        <i data-lucide="info" class="w-4 h-4 shrink-0 mt-0.5 text-blue-500"></i>
+        <p class="leading-relaxed">
+          メルカトル図法の特性を完全再現。赤道に近づくほど小さくなり、極地に近づくほど巨大化し、さらに図形自体も歪みます。
+        </p>
+      </div>
     </div>
   </div>
 
   <!-- ステータスパネル (右上) -->
-  <div class="absolute top-4 right-4 z-[1000] bg-white/95 backdrop-blur-md p-5 rounded-2xl shadow-xl border border-gray-100 min-w-[220px]">
-    <div class="text-xs font-semibold text-gray-400 tracking-wider mb-1 uppercase">現在地の中心座標</div>
-    <div id="coords-display" class="font-mono text-sm text-gray-700 mb-4 bg-gray-50 p-2 rounded-lg border border-gray-100">
-      N 35.681°<br/>E 139.767°
+  <div class="absolute top-4 right-4 z-[1000] bg-white/95 backdrop-blur-md p-3 sm:p-5 rounded-xl sm:rounded-2xl shadow-xl border border-gray-100 min-w-min sm:min-w-[220px]">
+    <div class="hidden sm:block">
+      <div class="text-xs font-semibold text-gray-400 tracking-wider mb-1 uppercase">現在地の中心座標</div>
+      <div id="coords-display" class="font-mono text-sm text-gray-700 mb-4 bg-gray-50 p-2 rounded-lg border border-gray-100">
+        N 35.681°<br/>E 139.767°
+      </div>
     </div>
     
-    <div class="text-xs font-semibold text-gray-400 tracking-wider mb-1 uppercase">
-      見た目の大きさ <br/><span class="text-[10px] font-normal lowercase">(対 北海道本来の位置)</span>
+    <div class="text-[10px] sm:text-xs font-semibold text-gray-400 tracking-wider mb-0 sm:mb-1 uppercase leading-tight">
+      見た目の大きさ <br class="hidden sm:inline"/><span class="text-[8px] sm:text-[10px] font-normal lowercase">(対 本来の位置)</span>
     </div>
-    <div class="flex items-baseline gap-1 mt-1">
-      <span id="scale-display" class="text-3xl font-black text-red-500 tracking-tight">100.0</span>
-      <span class="text-sm text-gray-500 font-medium">%</span>
+    <div class="flex items-baseline gap-1 mt-0.5 sm:mt-1">
+      <span id="scale-display" class="text-xl sm:text-3xl font-black text-red-500 tracking-tight">100.0</span>
+      <span class="text-xs sm:text-sm text-gray-500 font-medium">%</span>
     </div>
   </div>
 
   <!-- コントロールボタン (下部中央) -->
-  <div class="absolute bottom-8 left-1/2 -translate-x-1/2 z-[1000] flex gap-3 w-full max-w-sm px-4 justify-center">
-    <button id="btn-home" class="flex-1 flex items-center justify-center gap-2 bg-white px-4 py-3.5 rounded-2xl shadow-lg font-medium text-gray-700 hover:bg-gray-50 transition-all active:scale-95 border border-gray-200 cursor-pointer">
-      <i data-lucide="map-pin" class="w-5 h-5 text-red-500"></i>
+  <div class="absolute bottom-6 sm:bottom-8 left-1/2 -translate-x-1/2 z-[1000] flex gap-2 sm:gap-3 w-full max-w-[90%] sm:max-w-sm justify-center">
+    <button id="btn-home" class="flex-1 flex items-center justify-center gap-1.5 sm:gap-2 bg-white px-3 sm:px-4 py-2.5 sm:py-3.5 rounded-xl sm:rounded-2xl shadow-lg font-medium text-sm sm:text-base text-gray-700 hover:bg-gray-50 transition-all active:scale-95 border border-gray-200 cursor-pointer">
+      <i data-lucide="map-pin" class="w-4 h-4 sm:w-5 sm:h-5 text-red-500"></i>
       元の位置
     </button>
-    <button id="btn-current-location" class="flex-1 flex items-center justify-center gap-2 bg-blue-600 px-4 py-3.5 rounded-2xl shadow-lg font-medium text-white hover:bg-blue-700 transition-all active:scale-95 cursor-pointer">
-      <i data-lucide="navigation" class="w-5 h-5"></i>
+    <button id="btn-current-location" class="flex-1 flex items-center justify-center gap-1.5 sm:gap-2 bg-blue-600 px-3 sm:px-4 py-2.5 sm:py-3.5 rounded-xl sm:rounded-2xl shadow-lg font-medium text-sm sm:text-base text-white hover:bg-blue-700 transition-all active:scale-95 cursor-pointer">
+      <i data-lucide="navigation" class="w-4 h-4 sm:w-5 sm:h-5"></i>
       現在地へ
     </button>
   </div>

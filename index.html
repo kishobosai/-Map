@@ -24,8 +24,8 @@
   <!-- ローディング画面 -->
   <div id="loading-overlay" class="absolute inset-0 z-[2000] bg-white/80 flex flex-col items-center justify-center backdrop-blur-sm transition-opacity duration-300">
     <div class="w-10 h-10 border-4 border-red-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-    <div class="text-gray-700 font-medium tracking-wide">北海道データを読み込み中...</div>
-    <div class="text-xs text-gray-400 mt-2">高精細な地理データを取得しています</div>
+    <div class="text-gray-700 font-medium tracking-wide">地理データを読み込み中...</div>
+    <div class="text-xs text-gray-400 mt-2">日本全国の高精細なデータを取得しています</div>
   </div>
 
   <!-- マップコンテナ -->
@@ -44,18 +44,26 @@
   <div class="absolute top-4 left-4 z-[1000] bg-white/95 backdrop-blur-md p-3 sm:p-5 rounded-xl sm:rounded-2xl shadow-xl border border-gray-100 max-w-[55%] sm:max-w-[320px]">
     <h1 class="text-sm sm:text-xl font-bold text-gray-800 flex items-center gap-1.5 sm:gap-2 sm:mb-3">
       <i data-lucide="map" class="w-4 h-4 sm:w-6 sm:h-6 text-red-500 shrink-0"></i>
-      <span class="truncate">どこでも北海道マップ</span>
+      <span id="app-title-text" class="truncate">どこでも北海道マップ</span>
     </h1>
+    
     <div class="hidden sm:block">
       <p class="text-sm text-gray-600 mb-4 leading-relaxed">
-        地図をドラッグすると、画面中央に北海道がついてきます。世界中の様々な地域と実際の大きさを比べてみましょう。
+        地図をドラッグすると、画面中央に選択した地域がついてきます。世界中の様々な地域と実際の大きさを比べてみましょう。
       </p>
-      <div class="flex items-start gap-2 text-xs text-blue-800 bg-blue-50/80 p-3 rounded-xl border border-blue-100">
+      <div class="flex items-start gap-2 text-xs text-blue-800 bg-blue-50/80 p-3 rounded-xl border border-blue-100 mb-4">
         <i data-lucide="info" class="w-4 h-4 shrink-0 mt-0.5 text-blue-500"></i>
         <p class="leading-relaxed">
           メルカトル図法の特性を完全再現。赤道に近づくほど小さくなり、極地に近づくほど巨大化し、さらに図形自体も歪みます。
         </p>
       </div>
+    </div>
+
+    <!-- 地域選択プルダウン -->
+    <div class="mt-2 sm:mt-0">
+      <select id="region-select" class="w-full bg-gray-50/90 border border-gray-200 text-gray-800 text-xs sm:text-sm rounded-xl focus:ring-blue-500 focus:border-blue-500 block p-2 sm:p-2.5 shadow-inner cursor-pointer outline-none transition-all">
+        <option value="北海道">北海道 (読み込み中...)</option>
+      </select>
     </div>
   </div>
 
@@ -105,12 +113,23 @@
     let center = { lat: 35.6812, lng: 139.7671 }; // 初期位置: 東京
     let scale = 100;
     let toastTimeout = null;
+    
+    // 現在選択されている地域と、その本来の中心座標
+    let currentRegion = "北海道";
+    let L_lon = 142.3648; 
+    let L_lat = 43.4326;
 
-    // 北海道の本来の中心座標（大雪山付近）
-    const L_lon = 142.3648; 
-    const L_lat = 43.4326;
+    // 日本全国の都道府県リスト
+    const PREF_NAMES = [
+      "北海道", "青森県", "岩手県", "宮城県", "秋田県", "山形県", "福島県", "茨城県", "栃木県", "群馬県",
+      "埼玉県", "千葉県", "東京都", "神奈川県", "新潟県", "富山県", "石川県", "福井県", "山梨県", "長野県",
+      "岐阜県", "静岡県", "愛知県", "三重県", "滋賀県", "京都府", "大阪府", "兵庫県", "奈良県", "和歌山県",
+      "鳥取県", "島根県", "岡山県", "広島県", "山口県", "徳島県", "香川県", "愛媛県", "高知県", "福岡県",
+      "佐賀県", "長崎県", "熊本県", "大分県", "宮崎県", "鹿児島県", "沖縄県"
+    ];
+    let regionDatabase = {};
 
-    // 高品質な北海道のアウトライン座標（通信完全遮断時の最終フォールバック用）
+    // 通信完全遮断時の最終フォールバック用（北海道のみ）
     const fallbackPolygon = [
       [
         [140.14, 41.42], [140.23, 41.73], [140.52, 41.79], [140.96, 41.72], [141.17, 41.86], [141.06, 42.06],
@@ -126,7 +145,6 @@
       ]
     ];
 
-    // トースト通知を表示する関数
     function showToast(msg) {
       const toastEl = document.getElementById('toast');
       const msgEl = document.getElementById('toast-message');
@@ -139,31 +157,40 @@
       }, 3000);
     }
 
-    // GeoJSONから外枠のポリゴンを抽出
-    function extractRingsFromGeoJSON(geojson) {
+    // GeoJSONのGeometryからポリゴンの座標リングを抽出する
+    function extractRingsFromGeometry(geometry) {
       let rings = [];
-      const processGeometry = (geometry) => {
-        if (!geometry || !geometry.coordinates) return;
-        if (geometry.type === 'Polygon') {
-          geometry.coordinates.forEach(ring => rings.push(ring));
-        } else if (geometry.type === 'MultiPolygon') {
-          geometry.coordinates.forEach(polygon => {
-            polygon.forEach(ring => rings.push(ring));
-          });
-        }
-      };
-
-      if (geojson.type === 'FeatureCollection') {
-        geojson.features.forEach(f => processGeometry(f.geometry));
-      } else if (geojson.type === 'Feature') {
-        processGeometry(geojson.geometry);
-      } else {
-        processGeometry(geojson);
+      if (!geometry || !geometry.coordinates) return rings;
+      if (geometry.type === 'Polygon') {
+        geometry.coordinates.forEach(ring => rings.push(ring));
+      } else if (geometry.type === 'MultiPolygon') {
+        geometry.coordinates.forEach(polygon => {
+          polygon.forEach(ring => rings.push(ring));
+        });
       }
       return rings.filter(ring => ring.length >= 3);
     }
 
-    // UIのテキスト（座標とスケール）を更新する関数
+    // リングの集まりからバウンディングボックスの中心を計算する
+    function calculateBoundsAndCenter(rings) {
+      let minLon = 180, maxLon = -180, minLat = 90, maxLat = -90;
+      let hasPoints = false;
+      rings.forEach(ring => {
+        ring.forEach(([lon, lat]) => {
+          if (lon < minLon) minLon = lon;
+          if (lon > maxLon) maxLon = lon;
+          if (lat < minLat) minLat = lat;
+          if (lat > maxLat) maxLat = lat;
+          hasPoints = true;
+        });
+      });
+      if (!hasPoints) return { lat: 35.6812, lon: 139.7671 }; // 念のためのフォールバック
+      return {
+        lon: (minLon + maxLon) / 2,
+        lat: (minLat + maxLat) / 2
+      };
+    }
+
     function updateUI() {
       const displayLat = center.lat;
       let displayLng = center.lng % 360;
@@ -179,7 +206,7 @@
       document.getElementById('scale-display').innerText = scale.toFixed(1);
     }
 
-    // 北海道ポリゴンの描画と移動処理（球面三角法を用いた厳密な計算）
+    // ポリゴンの描画と移動処理（球面三角法を用いた厳密な計算）
     function updatePolygon() {
       if (!map || !geoData) return;
 
@@ -188,13 +215,11 @@
 
       const clamped_lat = Math.max(-85, Math.min(85, c_lat));
       
-      // UI表示用のスケール（中心点のメルカトル拡大率の比）
       const L_lat_rad = L_lat * Math.PI / 180;
       const C_lat_rad = clamped_lat * Math.PI / 180;
       const ratio = Math.cos(L_lat_rad) / Math.cos(C_lat_rad);
       scale = Math.pow(ratio, 2) * 100;
 
-      // --- 球面幾何学を用いた座標変換（歪みの完全再現） ---
       const toRad = Math.PI / 180;
       const toDeg = 180 / Math.PI;
       
@@ -208,10 +233,8 @@
           const lat_rad = lat * toRad;
           const lon_rad = lon * toRad;
 
-          // 1. 本来の中心点から各頂点への角距離(delta)と方位角(theta)を計算
           const dLon = lon_rad - lon0;
           
-          // 浮動小数点誤差による acos(>1.0) の NaN を防ぐためのクランプ
           const cosDelta = Math.max(-1.0, Math.min(1.0, 
             Math.sin(lat0) * Math.sin(lat_rad) + 
             Math.cos(lat0) * Math.cos(lat_rad) * Math.cos(dLon)
@@ -222,8 +245,6 @@
           const x = Math.cos(lat0) * Math.sin(lat_rad) - Math.sin(lat0) * Math.cos(lat_rad) * Math.cos(dLon);
           const theta = Math.atan2(y, x);
 
-          // 2. 移動先の中心点から同じ角距離・方位角にある「新しい緯度・経度」を計算
-          // これにより地球儀上で図形を滑らせた状態が再現され、それをメルカトル投影することで正確な歪みが生まれる
           const new_lat_rad = Math.asin(
             Math.sin(lat1) * Math.cos(delta) + 
             Math.cos(lat1) * Math.sin(delta) * Math.cos(theta)
@@ -253,39 +274,160 @@
       updateUI();
     }
 
-    // 地理データの取得（3段構えのフォールバック）
+    // セレクトボックスの生成とイベント登録
+    function buildRegionSelect() {
+      const select = document.getElementById('region-select');
+      select.innerHTML = '';
+      
+      const optionJapan = document.createElement('option');
+      optionJapan.value = "日本全体";
+      optionJapan.text = "日本全体";
+      select.appendChild(optionJapan);
+
+      PREF_NAMES.forEach(name => {
+        // 島嶼部が広範囲な県については、分割した選択肢も追加する
+        if (name === "東京都" || name === "鹿児島県" || name === "沖縄県") {
+          const parts = name === "東京都" ? ["東京都（本土）", "東京都（島嶼部）", "東京都（全体）"] :
+                        name === "鹿児島県" ? ["鹿児島県（本土）", "鹿児島県（島嶼部）", "鹿児島県（全体）"] :
+                        ["沖縄県（沖縄本島・周辺）", "沖縄県（先島・大東諸島）", "沖縄県（全体）"];
+          parts.forEach(p => {
+            if (regionDatabase[p]) {
+              const option = document.createElement('option');
+              option.value = p;
+              option.text = p;
+              select.appendChild(option);
+            }
+          });
+        } else {
+          // その他の県はそのまま追加
+          if (regionDatabase[name]) {
+            const option = document.createElement('option');
+            option.value = name;
+            option.text = name;
+            select.appendChild(option);
+          }
+        }
+      });
+
+      select.addEventListener('change', (e) => {
+        selectRegion(e.target.value);
+      });
+    }
+
+    // 指定された地域にデータを切り替える
+    function selectRegion(name) {
+      if (!regionDatabase[name]) return;
+      currentRegion = name;
+      geoData = regionDatabase[name].rings;
+      L_lat = regionDatabase[name].center.lat;
+      L_lon = regionDatabase[name].center.lon;
+      
+      // セレクトボックスの選択状態を合わせる
+      document.getElementById('region-select').value = name;
+      // タイトルの変更
+      document.getElementById('app-title-text').innerText = `どこでも${name}マップ`;
+      
+      updatePolygon();
+    }
+
+    // 地理データの取得（全国データを一括取得）
     async function loadGeoData() {
       try {
-        const res = await fetch('https://gist.githubusercontent.com/hiroara/8d58127b6c0df66180f286b2b6818881/raw/3e64764070a61407488c29f4da3dcbd2084a13cd/%E5%8C%97%E6%B5%B7%E9%81%93.json');
-        if (!res.ok) throw new Error('Gist fetch failed');
+        const res = await fetch('https://raw.githubusercontent.com/dataofjapan/land/master/japan.geojson');
+        if (!res.ok) throw new Error('Fetch failed');
         const data = await res.json();
-        geoData = extractRingsFromGeoJSON(data);
-      } catch (e1) {
-        console.warn("Primary fetch failed, trying secondary...", e1);
-        try {
-          const res2 = await fetch('https://raw.githubusercontent.com/dataofjapan/land/master/japan.geojson');
-          if (!res2.ok) throw new Error('Secondary fetch failed');
-          const data2 = await res2.json();
-          const hokkaido = data2.features?.find(f => {
-            if (!f.properties) return false;
-            const vals = Object.values(f.properties).map(v => String(v).toLowerCase());
-            return vals.includes('01') || vals.includes('1') || vals.includes('北海道') || vals.includes('hokkaido');
-          });
-          if (hokkaido) {
-            geoData = extractRingsFromGeoJSON(hokkaido);
-          } else {
-            throw new Error('Hokkaido not found in japan.geojson');
+        
+        let allJapanRings = [];
+
+        // 全国のFeatureを都道府県ごとに分類
+        data.features.forEach(f => {
+          let prefName = "不明";
+          const vals = Object.values(f.properties).map(v => String(v));
+          for (const name of PREF_NAMES) {
+            // "東京都"と"東京"などの揺れに対応
+            if (vals.some(v => v === name || v === name.replace(/(都|府|県)$/, ''))) {
+              prefName = name;
+              break;
+            }
           }
-        } catch (e2) {
-          console.warn("All fetches failed, using fallback polygon.", e2);
-          showToast('高精細データの取得に失敗しました。内蔵データを使用します。');
-          geoData = fallbackPolygon;
+          if (prefName === "不明") {
+            let idVal = parseInt(f.properties.id || f.properties.pref || "0");
+            if (idVal >= 1 && idVal <= 47) {
+              prefName = PREF_NAMES[idVal - 1];
+            }
+          }
+
+          const rings = extractRingsFromGeometry(f.geometry);
+          allJapanRings.push(...rings);
+
+          if (prefName !== "不明") {
+            // ① 元々の都道府県全体としての保存（東京などは「（全体）」として保存）
+            let allKey = (prefName === "東京都" || prefName === "鹿児島県" || prefName === "沖縄県") ? prefName + "（全体）" : prefName;
+            if (!regionDatabase[allKey]) regionDatabase[allKey] = { rings: [] };
+            regionDatabase[allKey].rings.push(...rings);
+
+            // ② 広域な島嶼部を持つ県については、緯度経度から本土と島嶼部に分割して保存
+            if (prefName === "東京都") {
+              rings.forEach(ring => {
+                const bounds = calculateBoundsAndCenter([ring]);
+                let key = bounds.lat > 35.0 ? "東京都（本土）" : "東京都（島嶼部）";
+                if (!regionDatabase[key]) regionDatabase[key] = { rings: [] };
+                regionDatabase[key].rings.push(ring);
+              });
+            } else if (prefName === "鹿児島県") {
+              rings.forEach(ring => {
+                const bounds = calculateBoundsAndCenter([ring]);
+                // 佐多岬(約30.99度)と種子島(約30.8度)の間を境界線にする
+                let key = bounds.lat > 30.9 ? "鹿児島県（本土）" : "鹿児島県（島嶼部）";
+                if (!regionDatabase[key]) regionDatabase[key] = { rings: [] };
+                regionDatabase[key].rings.push(ring);
+              });
+            } else if (prefName === "沖縄県") {
+              rings.forEach(ring => {
+                const bounds = calculateBoundsAndCenter([ring]);
+                // 東経127度〜130度の範囲を沖縄本島・周辺諸島として分離
+                let key = (bounds.lon > 127.0 && bounds.lon < 130.0) ? "沖縄県（沖縄本島・周辺）" : "沖縄県（先島・大東諸島）";
+                if (!regionDatabase[key]) regionDatabase[key] = { rings: [] };
+                regionDatabase[key].rings.push(ring);
+              });
+            }
+          }
+        });
+
+        // 各都道府県（および分割された地域）の中心座標を計算
+        for (const key in regionDatabase) {
+          if (regionDatabase[key] && regionDatabase[key].rings.length > 0) {
+            regionDatabase[key].center = calculateBoundsAndCenter(regionDatabase[key].rings);
+          }
         }
+        
+        // 日本全体のデータを登録（中心は本州の真ん中付近に手動設定）
+        regionDatabase["日本全体"] = {
+          rings: allJapanRings,
+          center: { lat: 37.0, lon: 137.5 } 
+        };
+        
+        // 中心位置が海などにならないように微調整（慣れ親しんだ位置にするため）
+        if (regionDatabase["北海道"]) {
+          regionDatabase["北海道"].center = { lat: 43.4326, lon: 142.3648 };
+        }
+        if (regionDatabase["東京都（本土）"]) {
+          regionDatabase["東京都（本土）"].center = { lat: 35.689, lon: 139.691 }; // 新宿付近
+        }
+
+      } catch (e) {
+        console.warn("Fetch failed, using fallback polygon.", e);
+        showToast('高精細データの取得に失敗しました。内蔵データを使用します。');
+        regionDatabase["北海道"] = {
+          rings: fallbackPolygon,
+          center: { lat: 43.4326, lon: 142.3648 }
+        };
       }
 
-      // ロード完了処理
+      // 準備完了処理
+      buildRegionSelect();
+      selectRegion("北海道"); // デフォルトは北海道
       document.getElementById('loading-overlay').classList.add('hidden');
-      updatePolygon();
     }
 
     // アプリの初期化
@@ -306,17 +448,18 @@
       map.on('move', () => {
         const c = map.getCenter(); 
         center = { lat: c.lat, lng: c.lng };
-        updatePolygon(); // 移動するたびにポリゴンとUIを更新
+        updatePolygon(); 
       });
 
-      // 指を離した時（移動完了時）に極地（限界のグレー領域）へ行きすぎていたらゴム紐のように引き戻す
+      // 指を離した時（移動完了時）に極地へ行きすぎていたらゴム紐のように引き戻す
       map.on('moveend', () => {
         const c = map.getCenter();
-        const MAX_LAT = 84.5; // 地図が描画される限界緯度
+        const MAX_LAT = 84.5; 
         
-        if (c.lat > MAX_LAT) {
+        // 無限ループ(RangeError)を防ぐため、0.05度の「遊び」を持たせる
+        if (c.lat > MAX_LAT + 0.05) {
           map.panTo([MAX_LAT, c.lng], { animate: true, duration: 0.4 });
-        } else if (c.lat < -MAX_LAT) {
+        } else if (c.lat < -MAX_LAT - 0.05) {
           map.panTo([-MAX_LAT, c.lng], { animate: true, duration: 0.4 });
         }
       });
@@ -343,7 +486,7 @@
 
       // データのロード開始
       loadGeoData();
-      updateUI(); // 初回のUI更新
+      updateUI(); 
     };
   </script>
 </body>

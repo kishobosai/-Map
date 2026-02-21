@@ -52,7 +52,7 @@
     <div class="flex items-start gap-2 text-xs text-blue-800 bg-blue-50/80 p-3 rounded-xl border border-blue-100">
       <i data-lucide="info" class="w-4 h-4 shrink-0 mt-0.5 text-blue-500"></i>
       <p class="leading-relaxed">
-        メルカトル図法の特性上、赤道に近づくほど見た目は小さく、北極や南極に近づくほど巨大化します。
+        メルカトル図法の特性を完全再現。赤道に近づくほど小さくなり、極地に近づくほど巨大化し、さらに図形自体も歪みます。
       </p>
     </div>
   </div>
@@ -175,27 +175,62 @@
       document.getElementById('scale-display').innerText = scale.toFixed(1);
     }
 
-    // 北海道ポリゴンの描画と移動処理
+    // 北海道ポリゴンの描画と移動処理（球面三角法を用いた厳密な計算）
     function updatePolygon() {
       if (!map || !geoData) return;
 
       const c_lat = center.lat;
       const c_lon = center.lng;
 
-      // メルカトル図法の特性に基づいたスケーリング計算
       const clamped_lat = Math.max(-85, Math.min(85, c_lat));
+      
+      // UI表示用のスケール（中心点のメルカトル拡大率の比）
       const L_lat_rad = L_lat * Math.PI / 180;
       const C_lat_rad = clamped_lat * Math.PI / 180;
       const ratio = Math.cos(L_lat_rad) / Math.cos(C_lat_rad);
-      
       scale = Math.pow(ratio, 2) * 100;
 
-      // 新しい座標配列の計算
+      // --- 球面幾何学を用いた座標変換（歪みの完全再現） ---
+      const toRad = Math.PI / 180;
+      const toDeg = 180 / Math.PI;
+      
+      const lat0 = L_lat * toRad;
+      const lon0 = L_lon * toRad;
+      const lat1 = clamped_lat * toRad;
+      const lon1 = c_lon * toRad;
+
       const shifted = geoData.map(ring => 
         ring.map(([lon, lat]) => {
-          const new_lon = c_lon + (lon - L_lon) * ratio;
-          const new_lat = c_lat + (lat - L_lat);
-          return [new_lat, new_lon];
+          const lat_rad = lat * toRad;
+          const lon_rad = lon * toRad;
+
+          // 1. 本来の中心点から各頂点への角距離(delta)と方位角(theta)を計算
+          const dLon = lon_rad - lon0;
+          
+          // 浮動小数点誤差による acos(>1.0) の NaN を防ぐためのクランプ
+          const cosDelta = Math.max(-1.0, Math.min(1.0, 
+            Math.sin(lat0) * Math.sin(lat_rad) + 
+            Math.cos(lat0) * Math.cos(lat_rad) * Math.cos(dLon)
+          ));
+          const delta = Math.acos(cosDelta);
+
+          const y = Math.sin(dLon) * Math.cos(lat_rad);
+          const x = Math.cos(lat0) * Math.sin(lat_rad) - Math.sin(lat0) * Math.cos(lat_rad) * Math.cos(dLon);
+          const theta = Math.atan2(y, x);
+
+          // 2. 移動先の中心点から同じ角距離・方位角にある「新しい緯度・経度」を計算
+          // これにより地球儀上で図形を滑らせた状態が再現され、それをメルカトル投影することで正確な歪みが生まれる
+          const new_lat_rad = Math.asin(
+            Math.sin(lat1) * Math.cos(delta) + 
+            Math.cos(lat1) * Math.sin(delta) * Math.cos(theta)
+          );
+
+          const new_lon_rad = lon1 + Math.atan2(
+            Math.sin(theta) * Math.sin(delta) * Math.cos(lat1),
+            Math.cos(delta) - Math.sin(lat1) * Math.sin(new_lat_rad)
+          );
+
+          return [new_lat_rad * toDeg, new_lon_rad * toDeg];
         })
       );
 

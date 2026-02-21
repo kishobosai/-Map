@@ -228,31 +228,47 @@
       const lat1 = clamped_lat * toRad;
       const lon1 = c_lon * toRad;
 
+      // 毎フレーム数万回のループ計算を高速化するため、定数を事前計算
+      const sinLat0 = Math.sin(lat0);
+      const cosLat0 = Math.cos(lat0);
+      const sinLat1 = Math.sin(lat1);
+      const cosLat1 = Math.cos(lat1);
+
       const shifted = geoData.map(ring => 
         ring.map(([lon, lat]) => {
           const lat_rad = lat * toRad;
           const lon_rad = lon * toRad;
 
           const dLon = lon_rad - lon0;
+          const cosDLon = Math.cos(dLon);
+          const sinDLon = Math.sin(dLon);
           
+          const sinLatRad = Math.sin(lat_rad);
+          const cosLatRad = Math.cos(lat_rad);
+
           const cosDelta = Math.max(-1.0, Math.min(1.0, 
-            Math.sin(lat0) * Math.sin(lat_rad) + 
-            Math.cos(lat0) * Math.cos(lat_rad) * Math.cos(dLon)
+            sinLat0 * sinLatRad + 
+            cosLat0 * cosLatRad * cosDLon
           ));
           const delta = Math.acos(cosDelta);
+          const sinDelta = Math.sin(delta);
+          const cosDeltaVal = Math.cos(delta);
 
-          const y = Math.sin(dLon) * Math.cos(lat_rad);
-          const x = Math.cos(lat0) * Math.sin(lat_rad) - Math.sin(lat0) * Math.cos(lat_rad) * Math.cos(dLon);
+          const y = sinDLon * cosLatRad;
+          const x = cosLat0 * sinLatRad - sinLat0 * cosLatRad * cosDLon;
           const theta = Math.atan2(y, x);
 
+          const sinTheta = Math.sin(theta);
+          const cosTheta = Math.cos(theta);
+
           const new_lat_rad = Math.asin(
-            Math.sin(lat1) * Math.cos(delta) + 
-            Math.cos(lat1) * Math.sin(delta) * Math.cos(theta)
+            sinLat1 * cosDeltaVal + 
+            cosLat1 * sinDelta * cosTheta
           );
 
           const new_lon_rad = lon1 + Math.atan2(
-            Math.sin(theta) * Math.sin(delta) * Math.cos(lat1),
-            Math.cos(delta) - Math.sin(lat1) * Math.sin(new_lat_rad)
+            sinTheta * sinDelta * cosLat1,
+            cosDeltaVal - sinLat1 * Math.sin(new_lat_rad)
           );
 
           return [new_lat_rad * toDeg, new_lon_rad * toDeg];
@@ -330,6 +346,24 @@
       updatePolygon();
     }
 
+    // 頂点を間引く関数（軽量化用）
+    function simplifyRing(ring, tolerance) {
+      if (ring.length <= 2) return ring;
+      const res = [ring[0]];
+      let last = ring[0];
+      const tolSq = tolerance * tolerance;
+      for (let i = 1; i < ring.length - 1; i++) {
+        const dx = ring[i][0] - last[0];
+        const dy = ring[i][1] - last[1];
+        if (dx * dx + dy * dy > tolSq) {
+          res.push(ring[i]);
+          last = ring[i];
+        }
+      }
+      res.push(ring[ring.length - 1]);
+      return res;
+    }
+
     // 地理データの取得（全国データを一括取得）
     async function loadGeoData() {
       try {
@@ -358,24 +392,26 @@
           }
 
           const rings = extractRingsFromGeometry(f.geometry);
-          allJapanRings.push(...rings);
+          // 形が崩れない程度のごく微細な間引き（約50m）を行い、ベースの計算量を削減
+          const optimizedRings = rings.map(r => simplifyRing(r, 0.0005));
+          allJapanRings.push(...optimizedRings);
 
           if (prefName !== "不明") {
             // ① 元々の都道府県全体としての保存（東京などは「（全体）」として保存）
             let allKey = (prefName === "東京都" || prefName === "鹿児島県" || prefName === "沖縄県") ? prefName + "（全体）" : prefName;
             if (!regionDatabase[allKey]) regionDatabase[allKey] = { rings: [] };
-            regionDatabase[allKey].rings.push(...rings);
+            regionDatabase[allKey].rings.push(...optimizedRings);
 
             // ② 広域な島嶼部を持つ県については、緯度経度から本土と島嶼部に分割して保存
             if (prefName === "東京都") {
-              rings.forEach(ring => {
+              optimizedRings.forEach(ring => {
                 const bounds = calculateBoundsAndCenter([ring]);
                 let key = bounds.lat > 35.0 ? "東京都（本土）" : "東京都（島嶼部）";
                 if (!regionDatabase[key]) regionDatabase[key] = { rings: [] };
                 regionDatabase[key].rings.push(ring);
               });
             } else if (prefName === "鹿児島県") {
-              rings.forEach(ring => {
+              optimizedRings.forEach(ring => {
                 const bounds = calculateBoundsAndCenter([ring]);
                 // 佐多岬(約30.99度)と種子島(約30.8度)の間を境界線にする
                 let key = bounds.lat > 30.9 ? "鹿児島県（本土）" : "鹿児島県（島嶼部）";
@@ -383,7 +419,7 @@
                 regionDatabase[key].rings.push(ring);
               });
             } else if (prefName === "沖縄県") {
-              rings.forEach(ring => {
+              optimizedRings.forEach(ring => {
                 const bounds = calculateBoundsAndCenter([ring]);
                 // 東経127度〜130度の範囲を沖縄本島・周辺諸島として分離
                 let key = (bounds.lon > 127.0 && bounds.lon < 130.0) ? "沖縄県（沖縄本島・周辺）" : "沖縄県（先島・大東諸島）";
@@ -401,9 +437,14 @@
           }
         }
         
-        // 日本全体のデータを登録（中心は本州の真ん中付近に手動設定）
+        // 日本全体はデータ量が膨大で重くなるため、極小の島を除外し、少し強めに間引いて軽量化
+        const japanSimplifiedRings = allJapanRings
+          .filter(ring => ring.length > 25) // 小さすぎる島を除外
+          .map(ring => simplifyRing(ring, 0.003)) // 約300m間隔で間引き（形は維持）
+          .filter(ring => ring.length >= 3);
+
         regionDatabase["日本全体"] = {
-          rings: allJapanRings,
+          rings: japanSimplifiedRings,
           center: { lat: 37.0, lon: 137.5 } 
         };
         
@@ -444,11 +485,17 @@
         attribution: '&copy; OpenStreetMap contributors'
       }).addTo(map);
 
-      // 中心座標が動いた時のイベント
+      // 中心座標が動いた時のイベント（requestAnimationFrameで描画頻度を最適化し、軽量化）
+      let moveRaf = null;
       map.on('move', () => {
         const c = map.getCenter(); 
         center = { lat: c.lat, lng: c.lng };
-        updatePolygon(); 
+        if (!moveRaf) {
+          moveRaf = requestAnimationFrame(() => {
+            updatePolygon(); 
+            moveRaf = null;
+          });
+        }
       });
 
       // 指を離した時（移動完了時）に極地へ行きすぎていたらゴム紐のように引き戻す

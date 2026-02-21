@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>どこでも北海道マップ</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    /* Tailwindのデフォルトフォントを適用 */
+    body { font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif; }
+    /* アイコンの表示スタイル調整 */
+    i[data-lucide] { display: inline-block; }
+  </style>
+</head>
+<body class="relative w-full h-screen bg-[#e5e7eb] overflow-hidden">
+
+  <!-- ローディング画面 -->
+  <div id="loading-overlay" class="absolute inset-0 z-[2000] bg-white/80 flex flex-col items-center justify-center backdrop-blur-sm transition-opacity duration-300">
+    <div class="w-10 h-10 border-4 border-red-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+    <div class="text-gray-700 font-medium tracking-wide">北海道データを読み込み中...</div>
+    <div class="text-xs text-gray-400 mt-2">高精細な地理データを取得しています</div>
+  </div>
+
+  <!-- マップコンテナ -->
+  <div id="map" class="w-full h-full absolute inset-0 z-0"></div>
+  
+  <!-- 中央の十字レティクル（ターゲット） -->
+  <div class="absolute inset-0 pointer-events-none z-[1000] flex items-center justify-center">
+    <div class="relative w-10 h-10 opacity-50">
+      <div class="absolute top-1/2 left-0 w-full h-[2px] bg-gray-900 -translate-y-1/2 rounded-full"></div>
+      <div class="absolute left-1/2 top-0 w-[2px] h-full bg-gray-900 -translate-x-1/2 rounded-full"></div>
+      <div class="absolute inset-0 border-2 border-gray-900 rounded-full scale-50"></div>
+    </div>
+  </div>
+
+  <!-- タイトル・説明パネル (左上) -->
+  <div class="absolute top-4 left-4 z-[1000] bg-white/95 backdrop-blur-md p-5 rounded-2xl shadow-xl border border-gray-100 max-w-[320px]">
+    <h1 class="text-xl font-bold text-gray-800 flex items-center gap-2 mb-3">
+      <i data-lucide="map" class="w-6 h-6 text-red-500"></i>
+      どこでも北海道マップ
+    </h1>
+    <p class="text-sm text-gray-600 mb-4 leading-relaxed">
+      地図をドラッグすると、画面中央に北海道がついてきます。世界中の様々な地域と実際の大きさを比べてみましょう。
+    </p>
+    <div class="flex items-start gap-2 text-xs text-blue-800 bg-blue-50/80 p-3 rounded-xl border border-blue-100">
+      <i data-lucide="info" class="w-4 h-4 shrink-0 mt-0.5 text-blue-500"></i>
+      <p class="leading-relaxed">
+        メルカトル図法の特性上、赤道に近づくほど見た目は小さく、北極や南極に近づくほど巨大化します。
+      </p>
+    </div>
+  </div>
+
+  <!-- ステータスパネル (右上) -->
+  <div class="absolute top-4 right-4 z-[1000] bg-white/95 backdrop-blur-md p-5 rounded-2xl shadow-xl border border-gray-100 min-w-[220px]">
+    <div class="text-xs font-semibold text-gray-400 tracking-wider mb-1 uppercase">現在地の中心座標</div>
+    <div id="coords-display" class="font-mono text-sm text-gray-700 mb-4 bg-gray-50 p-2 rounded-lg border border-gray-100">
+      N 35.681°<br/>E 139.767°
+    </div>
+    
+    <div class="text-xs font-semibold text-gray-400 tracking-wider mb-1 uppercase">
+      見た目の大きさ <br/><span class="text-[10px] font-normal lowercase">(対 北海道本来の位置)</span>
+    </div>
+    <div class="flex items-baseline gap-1 mt-1">
+      <span id="scale-display" class="text-3xl font-black text-red-500 tracking-tight">100.0</span>
+      <span class="text-sm text-gray-500 font-medium">%</span>
+    </div>
+  </div>
+
+  <!-- コントロールボタン (下部中央) -->
+  <div class="absolute bottom-8 left-1/2 -translate-x-1/2 z-[1000] flex gap-3 w-full max-w-sm px-4 justify-center">
+    <button id="btn-home" class="flex-1 flex items-center justify-center gap-2 bg-white px-4 py-3.5 rounded-2xl shadow-lg font-medium text-gray-700 hover:bg-gray-50 transition-all active:scale-95 border border-gray-200 cursor-pointer">
+      <i data-lucide="map-pin" class="w-5 h-5 text-red-500"></i>
+      元の位置
+    </button>
+    <button id="btn-current-location" class="flex-1 flex items-center justify-center gap-2 bg-blue-600 px-4 py-3.5 rounded-2xl shadow-lg font-medium text-white hover:bg-blue-700 transition-all active:scale-95 cursor-pointer">
+      <i data-lucide="navigation" class="w-5 h-5"></i>
+      現在地へ
+    </button>
+  </div>
+
+  <!-- トースト通知 -->
+  <div id="toast" class="hidden absolute bottom-24 left-1/2 -translate-x-1/2 z-[1100] bg-gray-800/90 backdrop-blur-sm text-white px-6 py-3 rounded-full shadow-2xl text-sm font-medium animate-bounce transition-opacity">
+    <span id="toast-message"></span>
+  </div>
+
+  <script>
+    // アイコンの初期化
+    lucide.createIcons();
+
+    // グローバル変数
+    let map = null;
+    let polygonLayer = null;
+    let geoData = null;
+    let center = { lat: 35.6812, lng: 139.7671 }; // 初期位置: 東京
+    let scale = 100;
+    let toastTimeout = null;
+
+    // 北海道の本来の中心座標（大雪山付近）
+    const L_lon = 142.3648; 
+    const L_lat = 43.4326;
+
+    // 高品質な北海道のアウトライン座標（通信完全遮断時の最終フォールバック用）
+    const fallbackPolygon = [
+      [
+        [140.14, 41.42], [140.23, 41.73], [140.52, 41.79], [140.96, 41.72], [141.17, 41.86], [141.06, 42.06],
+        [140.82, 42.10], [140.50, 42.15], [140.31, 42.23], [140.02, 42.19], [139.86, 42.44], [139.84, 42.63],
+        [140.12, 42.86], [140.34, 43.33], [140.48, 43.36], [140.80, 43.19], [141.30, 43.23],
+        [141.35, 43.58], [141.40, 43.83], [141.65, 44.08], [141.68, 44.53], [141.73, 44.87], [141.67, 45.12], [141.83, 45.45],
+        [141.94, 45.52], [142.18, 45.40], [142.58, 44.93], [142.92, 44.51], [143.53, 44.15], [144.02, 44.02], [144.62, 44.04], [144.97, 44.22],
+        [145.32, 44.33], [145.63, 44.35], [145.42, 44.08], [145.02, 43.82],
+        [145.18, 43.51], [145.58, 43.41], [145.82, 43.38], [145.62, 43.25], [145.14, 43.11], [144.82, 42.94], [144.27, 42.95],
+        [143.84, 42.84], [143.35, 42.28], [143.24, 41.92], [143.14, 42.04],
+        [142.82, 42.24], [142.48, 42.36], [142.12, 42.49], [141.68, 42.61], [141.25, 42.46], [141.01, 42.31], [140.97, 42.33],
+        [140.48, 42.16], [140.32, 42.08], [140.33, 41.93], [140.61, 41.83], [140.14, 41.42]
+      ]
+    ];
+
+    // トースト通知を表示する関数
+    function showToast(msg) {
+      const toastEl = document.getElementById('toast');
+      const msgEl = document.getElementById('toast-message');
+      msgEl.innerText = msg;
+      toastEl.classList.remove('hidden');
+      
+      if (toastTimeout) clearTimeout(toastTimeout);
+      toastTimeout = setTimeout(() => {
+        toastEl.classList.add('hidden');
+      }, 3000);
+    }
+
+    // GeoJSONから外枠のポリゴンを抽出
+    function extractRingsFromGeoJSON(geojson) {
+      let rings = [];
+      const processGeometry = (geometry) => {
+        if (!geometry || !geometry.coordinates) return;
+        if (geometry.type === 'Polygon') {
+          geometry.coordinates.forEach(ring => rings.push(ring));
+        } else if (geometry.type === 'MultiPolygon') {
+          geometry.coordinates.forEach(polygon => {
+            polygon.forEach(ring => rings.push(ring));
+          });
+        }
+      };
+
+      if (geojson.type === 'FeatureCollection') {
+        geojson.features.forEach(f => processGeometry(f.geometry));
+      } else if (geojson.type === 'Feature') {
+        processGeometry(geojson.geometry);
+      } else {
+        processGeometry(geojson);
+      }
+      return rings.filter(ring => ring.length >= 3);
+    }
+
+    // UIのテキスト（座標とスケール）を更新する関数
+    function updateUI() {
+      const displayLat = center.lat;
+      let displayLng = center.lng % 360;
+      if (displayLng > 180) displayLng -= 360;
+      if (displayLng < -180) displayLng += 360;
+
+      const latText = displayLat >= 0 ? 'N' : 'S';
+      const lngText = displayLng >= 0 ? 'E' : 'W';
+
+      document.getElementById('coords-display').innerHTML = 
+        `${latText} ${Math.abs(displayLat).toFixed(3)}°<br/>${lngText} ${Math.abs(displayLng).toFixed(3)}°`;
+      
+      document.getElementById('scale-display').innerText = scale.toFixed(1);
+    }
+
+    // 北海道ポリゴンの描画と移動処理
+    function updatePolygon() {
+      if (!map || !geoData) return;
+
+      const c_lat = center.lat;
+      const c_lon = center.lng;
+
+      // メルカトル図法の特性に基づいたスケーリング計算
+      const clamped_lat = Math.max(-85, Math.min(85, c_lat));
+      const L_lat_rad = L_lat * Math.PI / 180;
+      const C_lat_rad = clamped_lat * Math.PI / 180;
+      const ratio = Math.cos(L_lat_rad) / Math.cos(C_lat_rad);
+      
+      scale = Math.pow(ratio, 2) * 100;
+
+      // 新しい座標配列の計算
+      const shifted = geoData.map(ring => 
+        ring.map(([lon, lat]) => {
+          const new_lon = c_lon + (lon - L_lon) * ratio;
+          const new_lat = c_lat + (lat - L_lat);
+          return [new_lat, new_lon];
+        })
+      );
+
+      if (!polygonLayer) {
+        polygonLayer = L.polygon(shifted, {
+          color: '#ef4444',
+          weight: 1.5,
+          fillColor: '#ef4444',
+          fillOpacity: 0.45,
+          interactive: false
+        }).addTo(map);
+      } else {
+        polygonLayer.setLatLngs(shifted);
+      }
+
+      updateUI();
+    }
+
+    // 地理データの取得（3段構えのフォールバック）
+    async function loadGeoData() {
+      try {
+        const res = await fetch('https://gist.githubusercontent.com/hiroara/8d58127b6c0df66180f286b2b6818881/raw/3e64764070a61407488c29f4da3dcbd2084a13cd/%E5%8C%97%E6%B5%B7%E9%81%93.json');
+        if (!res.ok) throw new Error('Gist fetch failed');
+        const data = await res.json();
+        geoData = extractRingsFromGeoJSON(data);
+      } catch (e1) {
+        console.warn("Primary fetch failed, trying secondary...", e1);
+        try {
+          const res2 = await fetch('https://raw.githubusercontent.com/dataofjapan/land/master/japan.geojson');
+          if (!res2.ok) throw new Error('Secondary fetch failed');
+          const data2 = await res2.json();
+          const hokkaido = data2.features?.find(f => {
+            if (!f.properties) return false;
+            const vals = Object.values(f.properties).map(v => String(v).toLowerCase());
+            return vals.includes('01') || vals.includes('1') || vals.includes('北海道') || vals.includes('hokkaido');
+          });
+          if (hokkaido) {
+            geoData = extractRingsFromGeoJSON(hokkaido);
+          } else {
+            throw new Error('Hokkaido not found in japan.geojson');
+          }
+        } catch (e2) {
+          console.warn("All fetches failed, using fallback polygon.", e2);
+          showToast('高精細データの取得に失敗しました。内蔵データを使用します。');
+          geoData = fallbackPolygon;
+        }
+      }
+
+      // ロード完了処理
+      document.getElementById('loading-overlay').classList.add('hidden');
+      updatePolygon();
+    }
+
+    // アプリの初期化
+    window.onload = function() {
+      // マップ初期化
+      map = L.map('map', {
+        center: [center.lat, center.lng],
+        zoom: 6,
+        zoomControl: false // 右下に配置し直すためデフォルトをオフ
+      });
+      
+      L.control.zoom({ position: 'bottomright' }).addTo(map);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(map);
+
+      // 中心座標が動いた時のイベント
+      map.on('move', () => {
+        const c = map.getCenter(); 
+        center = { lat: c.lat, lng: c.lng };
+        updatePolygon(); // 移動するたびにポリゴンとUIを更新
+      });
+
+      // 指を離した時（移動完了時）に極地（限界のグレー領域）へ行きすぎていたらゴム紐のように引き戻す
+      map.on('moveend', () => {
+        const c = map.getCenter();
+        const MAX_LAT = 84.5; // 地図が描画される限界緯度
+        
+        if (c.lat > MAX_LAT) {
+          map.panTo([MAX_LAT, c.lng], { animate: true, duration: 0.4 });
+        } else if (c.lat < -MAX_LAT) {
+          map.panTo([-MAX_LAT, c.lng], { animate: true, duration: 0.4 });
+        }
+      });
+
+      // ボタンのイベントリスナー
+      document.getElementById('btn-home').addEventListener('click', () => {
+        if (map) map.flyTo([L_lat, L_lon], 6, { duration: 1.5 });
+      });
+
+      document.getElementById('btn-current-location').addEventListener('click', () => {
+        if (navigator.geolocation) {
+          navigator.geolocation.getCurrentPosition(
+            (pos) => {
+              if (map) map.flyTo([pos.coords.latitude, pos.coords.longitude], 6, { duration: 1.5 });
+            },
+            () => {
+              showToast('現在地の取得が許可されていないか、取得に失敗しました。');
+            }
+          );
+        } else {
+          showToast('お使いのブラウザは現在地取得に対応していません。');
+        }
+      });
+
+      // データのロード開始
+      loadGeoData();
+      updateUI(); // 初回のUI更新
+    };
+  </script>
+</body>
+</html>

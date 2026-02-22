@@ -122,7 +122,7 @@
     let scale = 100;
     let toastTimeout = null;
     
-    // ズーム中かどうかを判定するフラグ（バグ修正用）
+    // ズーム中かどうかを判定するフラグ（ピンチズームちらつき防止用）
     let isZooming = false;
     
     // 現在選択されている地域と、その本来の中心座標
@@ -217,7 +217,7 @@
       document.getElementById('scale-display').innerText = scale.toFixed(1);
     }
 
-    // ポリゴンの描画と移動処理（球面三角法を用いた厳密な計算）
+    // ポリゴンの描画と移動処理（球面三角法を用いた厳密な計算 ＋ 浮動小数点エラーの完全ガード版）
     function updatePolygon() {
       if (!map || !geoData) return;
 
@@ -245,8 +245,12 @@
       const sinLat1 = Math.sin(lat1);
       const cosLat1 = Math.cos(lat1);
 
-      const shifted = geoData.map(ring => 
-        ring.map(([lon, lat]) => {
+      // grokの指摘箇所：ここでNaNや無限大が発生して巨大化していたのを完全にブロックします
+      const shifted = geoData.map(ring => {
+        const newRing = [];
+        
+        for (let i = 0; i < ring.length; i++) {
+          const [lon, lat] = ring[i];
           const lat_rad = lat * toRad;
           const lon_rad = lon * toRad;
 
@@ -257,34 +261,43 @@
           const sinLatRad = Math.sin(lat_rad);
           const cosLatRad = Math.cos(lat_rad);
 
-          const cosDelta = Math.max(-1.0, Math.min(1.0, 
-            sinLat0 * sinLatRad + 
-            cosLat0 * cosLatRad * cosDLon
-          ));
+          // 誤差対策1: cosDelta が -1.0 〜 1.0 を絶対に超えないように厳密にクランプ
+          const cosDeltaInner = sinLat0 * sinLatRad + cosLat0 * cosLatRad * cosDLon;
+          const cosDelta = Math.max(-1.0, Math.min(1.0, cosDeltaInner));
           const delta = Math.acos(cosDelta);
           const sinDelta = Math.sin(delta);
-          const cosDeltaVal = Math.cos(delta);
 
           const y = sinDLon * cosLatRad;
           const x = cosLat0 * sinLatRad - sinLat0 * cosLatRad * cosDLon;
-          const theta = Math.atan2(y, x);
+          
+          // 誤差対策2: deltaが0（中心点そのもの）の時のゼロ除算/不定角を回避
+          const theta = (Math.abs(x) < 1e-10 && Math.abs(y) < 1e-10) ? 0 : Math.atan2(y, x);
 
           const sinTheta = Math.sin(theta);
           const cosTheta = Math.cos(theta);
 
-          const new_lat_rad = Math.asin(
-            sinLat1 * cosDeltaVal + 
-            cosLat1 * sinDelta * cosTheta
-          );
+          // 誤差対策3: asin の中身も -1.0 〜 1.0 を絶対に超えないように厳密にクランプ
+          const asinInner = sinLat1 * cosDelta + cosLat1 * sinDelta * cosTheta;
+          const clampedAsinInner = Math.max(-1.0, Math.min(1.0, asinInner));
+          const new_lat_rad = Math.asin(clampedAsinInner);
 
           const new_lon_rad = lon1 + Math.atan2(
             sinTheta * sinDelta * cosLat1,
-            cosDeltaVal - sinLat1 * Math.sin(new_lat_rad)
+            cosDelta - sinLat1 * Math.sin(new_lat_rad)
           );
 
-          return [new_lat_rad * toDeg, new_lon_rad * toDeg];
-        })
-      );
+          const final_lat = new_lat_rad * toDeg;
+          const final_lon = new_lon_rad * toDeg;
+
+          // ★最終安全ガード: 浮動小数点エラーで NaN や Infinity になった頂点は配列から除外する
+          if (isFinite(final_lat) && isFinite(final_lon)) {
+            newRing.push([final_lat, final_lon]);
+          }
+        }
+        
+        // 有効な頂点が3つ以上残ったリングだけを採用
+        return newRing.length >= 3 ? newRing : null;
+      }).filter(ring => ring !== null);
 
       if (!polygonLayer) {
         polygonLayer = L.polygon(shifted, {
@@ -403,8 +416,8 @@
           }
 
           const rings = extractRingsFromGeometry(f.geometry);
-          // 形が崩れない程度のごく微細な間引き（約50m）を行い、ベースの計算量を削減
-          const optimizedRings = rings.map(r => simplifyRing(r, 0.0005));
+          // 【grokの提案を採用】 0.0005 → 0.0015 に緩和し、頂点数を減らして計算負荷とエラー発生率を下げる
+          const optimizedRings = rings.map(r => simplifyRing(r, 0.0015));
           allJapanRings.push(...optimizedRings);
 
           if (prefName !== "不明") {
@@ -451,7 +464,7 @@
         // 日本全体はデータ量が膨大で重くなるため、極小の島を除外し、少し強めに間引いて軽量化
         const japanSimplifiedRings = allJapanRings
           .filter(ring => ring.length > 25) // 小さすぎる島を除外
-          .map(ring => simplifyRing(ring, 0.003)) // 約300m間隔で間引き（形は維持）
+          .map(ring => simplifyRing(ring, 0.005)) // さらに間引いて軽量化
           .filter(ring => ring.length >= 3);
 
         regionDatabase["日本全体"] = {
@@ -496,12 +509,12 @@
         attribution: '&copy; OpenStreetMap contributors'
       }).addTo(map);
 
-      // 【バグ修正追加部分】ズーム開始時にフラグを立てる
+      // 【ピンチズームちらつき対策】ズーム開始時にフラグを立てる
       map.on('zoomstart', () => {
         isZooming = true;
       });
 
-      // 【バグ修正追加部分】ズーム終了時にフラグを下ろし、確定した位置で再計算・描画を行う
+      // 【ピンチズームちらつき対策】ズーム終了時にフラグを下ろし、確定した位置で再計算・描画を行う
       map.on('zoomend', () => {
         isZooming = false;
         const c = map.getCenter();
@@ -512,7 +525,7 @@
       // 中心座標が動いた時のイベント（requestAnimationFrameで描画頻度を最適化し、軽量化）
       let moveRaf = null;
       map.on('move', () => {
-        // 【バグ修正追加部分】ズーム中は再計算をスキップし、Leafletの標準アニメーションに任せる
+        // 【ピンチズームちらつき対策】ズーム中は再計算をスキップし、Leafletの標準アニメーションに任せる
         if (isZooming) return;
 
         const c = map.getCenter(); 

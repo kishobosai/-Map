@@ -122,6 +122,9 @@
     let scale = 100;
     let toastTimeout = null;
     
+    // ズーム中かどうかを判定するフラグ（バグ修正用）
+    let isZooming = false;
+    
     // 現在選択されている地域と、その本来の中心座標
     let currentRegion = "北海道";
     let L_lon = 142.3648; 
@@ -493,9 +496,25 @@
         attribution: '&copy; OpenStreetMap contributors'
       }).addTo(map);
 
+      // 【バグ修正追加部分】ズーム開始時にフラグを立てる
+      map.on('zoomstart', () => {
+        isZooming = true;
+      });
+
+      // 【バグ修正追加部分】ズーム終了時にフラグを下ろし、確定した位置で再計算・描画を行う
+      map.on('zoomend', () => {
+        isZooming = false;
+        const c = map.getCenter();
+        center = { lat: c.lat, lng: c.lng };
+        updatePolygon();
+      });
+
       // 中心座標が動いた時のイベント（requestAnimationFrameで描画頻度を最適化し、軽量化）
       let moveRaf = null;
       map.on('move', () => {
+        // 【バグ修正追加部分】ズーム中は再計算をスキップし、Leafletの標準アニメーションに任せる
+        if (isZooming) return;
+
         const c = map.getCenter(); 
         center = { lat: c.lat, lng: c.lng };
         if (!moveRaf) {

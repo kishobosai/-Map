@@ -9,7 +9,8 @@
   gtag('js', new Date());
 
   gtag('config', 'G-8ZD2TRY287');
-</script>  <meta charset="UTF-8">
+  </script>
+  <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>どこでも北海道マップ</title>
   <!-- Tailwind CSS -->
@@ -116,6 +117,30 @@
   <!-- トースト通知 -->
   <div id="toast" class="hidden absolute bottom-24 left-1/2 -translate-x-1/2 z-[1100] bg-gray-800/90 backdrop-blur-sm text-white px-6 py-3 rounded-full shadow-2xl text-sm font-medium animate-bounce transition-opacity">
     <span id="toast-message"></span>
+  </div>
+
+  <!-- 初回アクセス時の留意事項モーダル -->
+  <div id="notice-modal" class="fixed inset-0 z-[3000] flex items-center justify-center bg-gray-900/40 backdrop-blur-sm p-4 transition-opacity duration-300">
+    <div class="bg-white/95 backdrop-blur-md rounded-2xl shadow-2xl max-w-md w-full p-6 relative transform transition-all">
+      <h2 class="text-lg sm:text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+        <i data-lucide="alert-triangle" class="w-5 h-5 sm:w-6 sm:h-6 text-yellow-500"></i>
+        サイト利用時の留意事項
+      </h2>
+      <div class="text-sm text-gray-600 leading-relaxed space-y-3">
+        <p>
+          メルカトル図法の特性を再現しているため、極地に近づくほど図形は巨大化し、形も歪みます。
+        </p>
+        <p class="text-xs sm:text-sm bg-gray-50 p-3 sm:p-4 rounded-xl border border-gray-200">
+          <span class="font-bold text-gray-700">※本マップは直感的なスケール感を体験するためのシミュレーターです。</span><br>
+          地球を球体として近似計算しているため、最大0.5パーセント（北海道のサイズで最大1〜2km程度）の誤差が含まれており、厳密な測量や面積計算には使用できません。
+        </p>
+      </div>
+      <div class="mt-6 flex justify-end">
+        <button id="close-notice-btn" class="bg-blue-600 hover:bg-blue-700 text-white font-medium text-sm sm:text-base py-2.5 px-6 rounded-xl transition-all active:scale-95 cursor-pointer shadow-md">
+          確認して閉じる
+        </button>
+      </div>
+    </div>
   </div>
 
   <script>
@@ -576,6 +601,25 @@
           );
         } else {
           showToast('お使いのブラウザは現在地取得に対応していません。');
+        }
+      });
+
+      // 留意事項モーダルのイベントリスナー
+      const noticeModal = document.getElementById('notice-modal');
+      const closeNoticeBtn = document.getElementById('close-notice-btn');
+      
+      const closeModal = () => {
+        noticeModal.classList.add('opacity-0');
+        setTimeout(() => {
+          noticeModal.classList.add('hidden');
+        }, 300); // フェードアウトのアニメーション待機
+      };
+
+      closeNoticeBtn.addEventListener('click', closeModal);
+      // 黒い半透明の背景部分をクリックしても閉じられるようにする
+      noticeModal.addEventListener('click', (e) => {
+        if (e.target === noticeModal) {
+          closeModal();
         }
       });
 

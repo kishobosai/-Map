@@ -68,12 +68,37 @@
       </div>
     </div>
 
-    <!-- 地域選択プルダウン -->
+    <!-- 地域選択プルダウンと図形操作 -->
     <div class="mt-2 sm:mt-0">
       <select id="region-select" class="w-full bg-gray-50/90 border border-gray-200 text-gray-800 text-xs sm:text-sm rounded-xl focus:ring-blue-500 focus:border-blue-500 block p-2 sm:p-2.5 shadow-inner cursor-pointer outline-none transition-all">
         <option value="北海道">北海道 (読み込み中...)</option>
       </select>
       
+      <!-- 【追加】図形の操作パネル（折りたたみ式） -->
+      <div class="mt-2 sm:mt-3 border-t border-gray-100 pt-2 sm:pt-3">
+        <button id="btn-toggle-controls" class="flex items-center justify-between w-full text-xs text-gray-600 hover:text-gray-800 transition-colors">
+          <span class="flex items-center gap-1.5 font-medium"><i data-lucide="sliders" class="w-3.5 h-3.5 text-blue-500"></i> 図形の操作（回転・反転）</span>
+          <i data-lucide="chevron-down" id="icon-toggle-controls" class="w-3.5 h-3.5 transition-transform duration-300 text-gray-400"></i>
+        </button>
+        
+        <div id="controls-panel" class="hidden mt-3 space-y-2.5">
+          <div class="flex items-center gap-2">
+            <button id="btn-flip-x" class="flex-1 py-1.5 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg text-xs text-gray-700 transition-all">左右反転</button>
+            <button id="btn-flip-y" class="flex-1 py-1.5 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg text-xs text-gray-700 transition-all">上下反転</button>
+          </div>
+          <div class="flex items-center gap-2 bg-gray-50 px-2 py-1.5 rounded-lg border border-gray-100">
+            <i data-lucide="rotate-cw" class="w-3.5 h-3.5 text-gray-400 shrink-0"></i>
+            <input type="range" id="rotation-slider" min="-180" max="180" value="0" class="flex-1 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer outline-none">
+            <span id="rotation-display" class="text-xs text-gray-600 w-8 text-right font-mono shrink-0">0°</span>
+          </div>
+          <div class="flex justify-end pt-1">
+            <button id="btn-reset-transform" class="text-[10px] sm:text-xs text-blue-600 hover:bg-blue-50 px-2 py-1 rounded transition-colors flex items-center gap-1">
+              <i data-lucide="rotate-ccw" class="w-3 h-3"></i> 向きをリセット
+            </button>
+          </div>
+        </div>
+      </div>
+
       <!-- バグ報告リンク -->
       <div class="mt-2 text-right">
         <a href="https://docs.google.com/forms/d/e/1FAIpQLSfh55H0B8LKC9N7ed3hGXwA4duPPNhTMbcT6oQgCS4tX4_CjA/viewform?usp=header" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 text-[10px] sm:text-xs text-gray-400 hover:text-gray-600 transition-colors cursor-pointer">
@@ -95,6 +120,8 @@
     
     <div class="text-[10px] sm:text-xs font-semibold text-gray-400 tracking-wider mb-0 sm:mb-1 uppercase leading-tight">
       見た目の大きさ <br class="hidden sm:inline"/><span class="text-[8px] sm:text-[10px] font-normal lowercase">(対 本来の位置)</span>
+      <!-- スケール注釈（元に戻しました） -->
+      <div id="scale-note" class="text-[8px] sm:text-[10px] text-gray-400 mt-0.5 normal-case font-medium">※中心付近の目安値</div>
     </div>
     <div class="flex items-baseline gap-1 mt-0.5 sm:mt-1">
       <span id="scale-display" class="text-xl sm:text-3xl font-black text-red-500 tracking-tight">100.0</span>
@@ -154,6 +181,11 @@
     let center = { lat: 35.6812, lng: 139.7671 }; // 初期位置: 東京
     let scale = 100;
     let toastTimeout = null;
+    
+    // 図形の変形ステート変数（回転・反転用）
+    let currentRotation = 0;
+    let currentFlipX = false;
+    let currentFlipY = false;
     
     // ズーム中かどうかを判定するフラグ（ピンチズームちらつき防止用）
     let isZooming = false;
@@ -250,7 +282,33 @@
       document.getElementById('scale-display').innerText = scale.toFixed(1);
     }
 
-    // ポリゴンの描画と移動処理（球面三角法を用いた厳密な計算 ＋ 浮動小数点エラーの完全ガード版）
+    // 図形の変形（回転・反転）をUIに反映して適用するユーティリティ関数
+    function toggleFlipButton(btnId, isFlipped) {
+      const btn = document.getElementById(btnId);
+      if (isFlipped) {
+        btn.classList.add('bg-blue-100', 'border-blue-400', 'text-blue-700');
+        btn.classList.remove('bg-gray-50', 'border-gray-200', 'text-gray-700');
+      } else {
+        btn.classList.remove('bg-blue-100', 'border-blue-400', 'text-blue-700');
+        btn.classList.add('bg-gray-50', 'border-gray-200', 'text-gray-700');
+      }
+    }
+
+    function resetTransform() {
+      currentRotation = 0;
+      currentFlipX = false;
+      currentFlipY = false;
+      
+      const slider = document.getElementById('rotation-slider');
+      if(slider) {
+        slider.value = 0;
+        document.getElementById('rotation-display').innerText = `0°`;
+        toggleFlipButton('btn-flip-x', false);
+        toggleFlipButton('btn-flip-y', false);
+      }
+    }
+
+    // ポリゴンの描画と移動処理（回転・反転機能搭載版 ＋ エラーガード）
     function updatePolygon() {
       if (!map || !geoData) return;
 
@@ -261,9 +319,7 @@
       
       const L_lat_rad = L_lat * Math.PI / 180;
       const C_lat_rad = clamped_lat * Math.PI / 180;
-      const ratio = Math.cos(L_lat_rad) / Math.cos(C_lat_rad);
-      scale = Math.pow(ratio, 2) * 100;
-
+      
       const toRad = Math.PI / 180;
       const toDeg = 180 / Math.PI;
       
@@ -278,7 +334,6 @@
       const sinLat1 = Math.sin(lat1);
       const cosLat1 = Math.cos(lat1);
 
-      // grokの指摘箇所：ここでNaNや無限大が発生して巨大化していたのを完全にブロックします
       const shifted = geoData.map(ring => {
         const newRing = [];
         
@@ -304,7 +359,16 @@
           const x = cosLat0 * sinLatRad - sinLat0 * cosLatRad * cosDLon;
           
           // 誤差対策2: deltaが0（中心点そのもの）の時のゼロ除算/不定角を回避
-          const theta = (Math.abs(x) < 1e-10 && Math.abs(y) < 1e-10) ? 0 : Math.atan2(y, x);
+          let theta = (Math.abs(x) < 1e-10 && Math.abs(y) < 1e-10) ? 0 : Math.atan2(y, x);
+
+          // 【追加】図形の反転・回転を球面方位角に適用する
+          if (currentFlipX) {
+            theta = -theta; // 左右（経度方向）反転
+          }
+          if (currentFlipY) {
+            theta = Math.PI - theta; // 上下（緯度方向）反転
+          }
+          theta += currentRotation * toRad; // 回転の適用
 
           const sinTheta = Math.sin(theta);
           const cosTheta = Math.cos(theta);
@@ -322,7 +386,7 @@
           const final_lat = new_lat_rad * toDeg;
           const final_lon = new_lon_rad * toDeg;
 
-          // ★最終安全ガード: 浮動小数点エラーで NaN や Infinity になった頂点は配列から除外する
+          // 最終安全ガード: 浮動小数点エラーで NaN や Infinity になった頂点は配列から除外する
           if (isFinite(final_lat) && isFinite(final_lon)) {
             newRing.push([final_lat, final_lon]);
           }
@@ -331,6 +395,10 @@
         // 有効な頂点が3つ以上残ったリングだけを採用
         return newRing.length >= 3 ? newRing : null;
       }).filter(ring => ring !== null);
+      
+      // 【元の仕様に復元】中心緯度ベースのスケール計算のみ（元の場所でピッタリ100%になる）
+      const ratio = Math.cos(L_lat_rad) / Math.cos(C_lat_rad);
+      scale = Math.pow(ratio, 2) * 100;
 
       if (!polygonLayer) {
         polygonLayer = L.polygon(shifted, {
@@ -352,13 +420,16 @@
       const select = document.getElementById('region-select');
       select.innerHTML = '';
       
+      // 日本グループ
+      const optgroupJapan = document.createElement('optgroup');
+      optgroupJapan.label = "日本";
+      
       const optionJapan = document.createElement('option');
       optionJapan.value = "日本全体";
       optionJapan.text = "日本全体";
-      select.appendChild(optionJapan);
+      optgroupJapan.appendChild(optionJapan);
 
       PREF_NAMES.forEach(name => {
-        // 島嶼部が広範囲な県については、分割した選択肢も追加する
         if (name === "東京都" || name === "鹿児島県" || name === "沖縄県") {
           const parts = name === "東京都" ? ["東京都（本土）", "東京都（島嶼部）", "東京都（全体）"] :
                         name === "鹿児島県" ? ["鹿児島県（本土）", "鹿児島県（島嶼部）", "鹿児島県（全体）"] :
@@ -368,19 +439,19 @@
               const option = document.createElement('option');
               option.value = p;
               option.text = p;
-              select.appendChild(option);
+              optgroupJapan.appendChild(option);
             }
           });
         } else {
-          // その他の県はそのまま追加
           if (regionDatabase[name]) {
             const option = document.createElement('option');
             option.value = name;
             option.text = name;
-            select.appendChild(option);
+            optgroupJapan.appendChild(option);
           }
         }
       });
+      select.appendChild(optgroupJapan);
 
       select.addEventListener('change', (e) => {
         selectRegion(e.target.value);
@@ -394,6 +465,9 @@
       geoData = regionDatabase[name].rings;
       L_lat = regionDatabase[name].center.lat;
       L_lon = regionDatabase[name].center.lon;
+      
+      // 【追加】地域を変えたら回転・反転をリセットする
+      resetTransform();
       
       // セレクトボックスの選択状態を合わせる
       document.getElementById('region-select').value = name;
@@ -424,18 +498,16 @@
     // 地理データの取得（全国データを一括取得）
     async function loadGeoData() {
       try {
-        const res = await fetch('https://raw.githubusercontent.com/dataofjapan/land/master/japan.geojson');
-        if (!res.ok) throw new Error('Fetch failed');
-        const data = await res.json();
+        const resJapan = await fetch('https://raw.githubusercontent.com/dataofjapan/land/master/japan.geojson');
+        if (!resJapan.ok) throw new Error('Japan data fetch failed');
+        const dataJapan = await resJapan.json();
         
         let allJapanRings = [];
 
-        // 全国のFeatureを都道府県ごとに分類
-        data.features.forEach(f => {
+        dataJapan.features.forEach(f => {
           let prefName = "不明";
           const vals = Object.values(f.properties).map(v => String(v));
           for (const name of PREF_NAMES) {
-            // "東京都"と"東京"などの揺れに対応
             if (vals.some(v => v === name || v === name.replace(/(都|府|県)$/, ''))) {
               prefName = name;
               break;
@@ -449,17 +521,14 @@
           }
 
           const rings = extractRingsFromGeometry(f.geometry);
-          // 【grokの提案を採用】 0.0005 → 0.0015 に緩和し、頂点数を減らして計算負荷とエラー発生率を下げる
           const optimizedRings = rings.map(r => simplifyRing(r, 0.0015));
           allJapanRings.push(...optimizedRings);
 
           if (prefName !== "不明") {
-            // ① 元々の都道府県全体としての保存（東京などは「（全体）」として保存）
             let allKey = (prefName === "東京都" || prefName === "鹿児島県" || prefName === "沖縄県") ? prefName + "（全体）" : prefName;
             if (!regionDatabase[allKey]) regionDatabase[allKey] = { rings: [] };
             regionDatabase[allKey].rings.push(...optimizedRings);
 
-            // ② 広域な島嶼部を持つ県については、緯度経度から本土と島嶼部に分割して保存
             if (prefName === "東京都") {
               optimizedRings.forEach(ring => {
                 const bounds = calculateBoundsAndCenter([ring]);
@@ -470,7 +539,6 @@
             } else if (prefName === "鹿児島県") {
               optimizedRings.forEach(ring => {
                 const bounds = calculateBoundsAndCenter([ring]);
-                // 佐多岬(約30.99度)と種子島(約30.8度)の間を境界線にする
                 let key = bounds.lat > 30.9 ? "鹿児島県（本土）" : "鹿児島県（島嶼部）";
                 if (!regionDatabase[key]) regionDatabase[key] = { rings: [] };
                 regionDatabase[key].rings.push(ring);
@@ -478,7 +546,6 @@
             } else if (prefName === "沖縄県") {
               optimizedRings.forEach(ring => {
                 const bounds = calculateBoundsAndCenter([ring]);
-                // 東経127度〜130度の範囲を沖縄本島・周辺諸島として分離
                 let key = (bounds.lon > 127.0 && bounds.lon < 130.0) ? "沖縄県（沖縄本島・周辺）" : "沖縄県（先島・大東諸島）";
                 if (!regionDatabase[key]) regionDatabase[key] = { rings: [] };
                 regionDatabase[key].rings.push(ring);
@@ -487,17 +554,16 @@
           }
         });
 
-        // 各都道府県（および分割された地域）の中心座標を計算
+        // --- 中心座標の計算 ---
         for (const key in regionDatabase) {
           if (regionDatabase[key] && regionDatabase[key].rings.length > 0) {
             regionDatabase[key].center = calculateBoundsAndCenter(regionDatabase[key].rings);
           }
         }
         
-        // 日本全体はデータ量が膨大で重くなるため、極小の島を除外し、少し強めに間引いて軽量化
         const japanSimplifiedRings = allJapanRings
-          .filter(ring => ring.length > 25) // 小さすぎる島を除外
-          .map(ring => simplifyRing(ring, 0.005)) // さらに間引いて軽量化
+          .filter(ring => ring.length > 25)
+          .map(ring => simplifyRing(ring, 0.005))
           .filter(ring => ring.length >= 3);
 
         regionDatabase["日本全体"] = {
@@ -505,17 +571,16 @@
           center: { lat: 37.0, lon: 137.5 } 
         };
         
-        // 中心位置が海などにならないように微調整（慣れ親しんだ位置にするため）
         if (regionDatabase["北海道"]) {
           regionDatabase["北海道"].center = { lat: 43.4326, lon: 142.3648 };
         }
         if (regionDatabase["東京都（本土）"]) {
-          regionDatabase["東京都（本土）"].center = { lat: 35.689, lon: 139.691 }; // 新宿付近
+          regionDatabase["東京都（本土）"].center = { lat: 35.689, lon: 139.691 }; 
         }
 
       } catch (e) {
         console.warn("Fetch failed, using fallback polygon.", e);
-        showToast('高精細データの取得に失敗しました。内蔵データを使用します。');
+        showToast('データの取得に失敗しました。内蔵データを使用します。');
         regionDatabase["北海道"] = {
           rings: fallbackPolygon,
           center: { lat: 43.4326, lon: 142.3648 }
@@ -534,7 +599,7 @@
       map = L.map('map', {
         center: [center.lat, center.lng],
         zoom: 6,
-        zoomControl: false // 右下に配置し直すためデフォルトをオフ
+        zoomControl: false
       });
       
       L.control.zoom({ position: 'bottomright' }).addTo(map);
@@ -542,12 +607,8 @@
         attribution: '&copy; OpenStreetMap contributors'
       }).addTo(map);
 
-      // 【ピンチズームちらつき対策】ズーム開始時にフラグを立てる
-      map.on('zoomstart', () => {
-        isZooming = true;
-      });
+      map.on('zoomstart', () => { isZooming = true; });
 
-      // 【ピンチズームちらつき対策】ズーム終了時にフラグを下ろし、確定した位置で再計算・描画を行う
       map.on('zoomend', () => {
         isZooming = false;
         const c = map.getCenter();
@@ -555,12 +616,9 @@
         updatePolygon();
       });
 
-      // 中心座標が動いた時のイベント（requestAnimationFrameで描画頻度を最適化し、軽量化）
       let moveRaf = null;
       map.on('move', () => {
-        // 【ピンチズームちらつき対策】ズーム中は再計算をスキップし、Leafletの標準アニメーションに任せる
         if (isZooming) return;
-
         const c = map.getCenter(); 
         center = { lat: c.lat, lng: c.lng };
         if (!moveRaf) {
@@ -571,12 +629,9 @@
         }
       });
 
-      // 指を離した時（移動完了時）に極地へ行きすぎていたらゴム紐のように引き戻す
       map.on('moveend', () => {
         const c = map.getCenter();
         const MAX_LAT = 84.5; 
-        
-        // 無限ループ(RangeError)を防ぐため、0.05度の「遊び」を持たせる
         if (c.lat > MAX_LAT + 0.05) {
           map.panTo([MAX_LAT, c.lng], { animate: true, duration: 0.4 });
         } else if (c.lat < -MAX_LAT - 0.05) {
@@ -584,7 +639,7 @@
         }
       });
 
-      // ボタンのイベントリスナー
+      // --- 各種ボタンイベント ---
       document.getElementById('btn-home').addEventListener('click', () => {
         if (map) map.flyTo([L_lat, L_lon], 6, { duration: 1.5 });
       });
@@ -595,13 +650,44 @@
             (pos) => {
               if (map) map.flyTo([pos.coords.latitude, pos.coords.longitude], 6, { duration: 1.5 });
             },
-            () => {
-              showToast('現在地の取得が許可されていないか、取得に失敗しました。');
-            }
+            () => { showToast('現在地の取得が許可されていないか、取得に失敗しました。'); }
           );
         } else {
           showToast('お使いのブラウザは現在地取得に対応していません。');
         }
+      });
+
+      // 【追加】図形操作パネルのトグルと操作イベント
+      const btnToggleControls = document.getElementById('btn-toggle-controls');
+      const controlsPanel = document.getElementById('controls-panel');
+      const iconToggle = document.getElementById('icon-toggle-controls');
+
+      btnToggleControls.addEventListener('click', () => {
+        controlsPanel.classList.toggle('hidden');
+        iconToggle.classList.toggle('rotate-180');
+      });
+
+      document.getElementById('rotation-slider').addEventListener('input', (e) => {
+        currentRotation = parseInt(e.target.value, 10);
+        document.getElementById('rotation-display').innerText = `${currentRotation}°`;
+        requestAnimationFrame(updatePolygon);
+      });
+
+      document.getElementById('btn-flip-x').addEventListener('click', () => {
+        currentFlipX = !currentFlipX;
+        toggleFlipButton('btn-flip-x', currentFlipX);
+        requestAnimationFrame(updatePolygon);
+      });
+
+      document.getElementById('btn-flip-y').addEventListener('click', () => {
+        currentFlipY = !currentFlipY;
+        toggleFlipButton('btn-flip-y', currentFlipY);
+        requestAnimationFrame(updatePolygon);
+      });
+
+      document.getElementById('btn-reset-transform').addEventListener('click', () => {
+        resetTransform();
+        requestAnimationFrame(updatePolygon);
       });
 
       // 留意事項モーダルのイベントリスナー
@@ -612,15 +698,12 @@
         noticeModal.classList.add('opacity-0');
         setTimeout(() => {
           noticeModal.classList.add('hidden');
-        }, 300); // フェードアウトのアニメーション待機
+        }, 300);
       };
 
       closeNoticeBtn.addEventListener('click', closeModal);
-      // 黒い半透明の背景部分をクリックしても閉じられるようにする
       noticeModal.addEventListener('click', (e) => {
-        if (e.target === noticeModal) {
-          closeModal();
-        }
+        if (e.target === noticeModal) closeModal();
       });
 
       // データのロード開始

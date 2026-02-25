@@ -28,7 +28,7 @@
     i[data-lucide] { display: inline-block; }
   </style>
 </head>
-<body class="relative w-full h-screen bg-[#e5e7eb] overflow-hidden">
+<body class="relative w-full h-[100dvh] bg-[#e5e7eb] overflow-hidden">
 
   <!-- ローディング画面 -->
   <div id="loading-overlay" class="absolute inset-0 z-[2000] bg-white/80 flex flex-col items-center justify-center backdrop-blur-sm transition-opacity duration-300">
@@ -50,7 +50,7 @@
   </div>
 
   <!-- タイトル・説明パネル (左上) -->
-  <div class="absolute top-4 left-4 z-[1000] bg-white/95 backdrop-blur-md p-3 sm:p-5 rounded-xl sm:rounded-2xl shadow-xl border border-gray-100 max-w-[55%] sm:max-w-[320px]">
+  <div class="absolute top-[max(1rem,env(safe-area-inset-top))] left-4 z-[1000] bg-white/95 backdrop-blur-md p-3 sm:p-5 rounded-xl sm:rounded-2xl shadow-xl border border-gray-100 max-w-[55%] sm:max-w-[320px]">
     <h1 class="text-sm sm:text-xl font-bold text-gray-800 flex items-center gap-1.5 sm:gap-2 sm:mb-3">
       <i data-lucide="map" class="w-4 h-4 sm:w-6 sm:h-6 text-red-500 shrink-0"></i>
       <span id="app-title-text" class="truncate">どこでも北海道マップ</span>
@@ -74,7 +74,7 @@
         <option value="北海道">北海道 (読み込み中...)</option>
       </select>
       
-      <!-- 【追加】図形の操作パネル（折りたたみ式） -->
+      <!-- 図形の操作パネル（折りたたみ式） -->
       <div class="mt-2 sm:mt-3 border-t border-gray-100 pt-2 sm:pt-3">
         <button id="btn-toggle-controls" class="flex items-center justify-between w-full text-xs text-gray-600 hover:text-gray-800 transition-colors">
           <span class="flex items-center gap-1.5 font-medium"><i data-lucide="sliders" class="w-3.5 h-3.5 text-blue-500"></i> 図形の操作（回転・反転）</span>
@@ -110,7 +110,7 @@
   </div>
 
   <!-- ステータスパネル (右上) -->
-  <div class="absolute top-4 right-4 z-[1000] bg-white/95 backdrop-blur-md p-3 sm:p-5 rounded-xl sm:rounded-2xl shadow-xl border border-gray-100 min-w-min sm:min-w-[220px]">
+  <div class="absolute top-[max(1rem,env(safe-area-inset-top))] right-4 z-[1000] bg-white/95 backdrop-blur-md p-3 sm:p-5 rounded-xl sm:rounded-2xl shadow-xl border border-gray-100 min-w-min sm:min-w-[220px]">
     <div class="hidden sm:block">
       <div class="text-xs font-semibold text-gray-400 tracking-wider mb-1 uppercase">現在地の中心座標</div>
       <div id="coords-display" class="font-mono text-sm text-gray-700 mb-4 bg-gray-50 p-2 rounded-lg border border-gray-100">
@@ -120,7 +120,7 @@
     
     <div class="text-[10px] sm:text-xs font-semibold text-gray-400 tracking-wider mb-0 sm:mb-1 uppercase leading-tight">
       見た目の大きさ <br class="hidden sm:inline"/><span class="text-[8px] sm:text-[10px] font-normal lowercase">(対 本来の位置)</span>
-      <!-- スケール注釈（元に戻しました） -->
+      <!-- スケール注釈 -->
       <div id="scale-note" class="text-[8px] sm:text-[10px] text-gray-400 mt-0.5 normal-case font-medium">※中心付近の目安値</div>
     </div>
     <div class="flex items-baseline gap-1 mt-0.5 sm:mt-1">
@@ -130,7 +130,7 @@
   </div>
 
   <!-- コントロールボタン (下部中央) -->
-  <div class="absolute bottom-6 sm:bottom-8 left-1/2 -translate-x-1/2 z-[1000] flex gap-2 sm:gap-3 w-full max-w-[90%] sm:max-w-sm justify-center">
+  <div class="absolute bottom-[max(1.5rem,env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 z-[1000] flex gap-2 sm:gap-3 w-full max-w-[90%] sm:max-w-sm justify-center">
     <button id="btn-home" class="flex-1 flex items-center justify-center gap-1.5 sm:gap-2 bg-white px-3 sm:px-4 py-2.5 sm:py-3.5 rounded-xl sm:rounded-2xl shadow-lg font-medium text-sm sm:text-base text-gray-700 hover:bg-gray-50 transition-all active:scale-95 border border-gray-200 cursor-pointer">
       <i data-lucide="map-pin" class="w-4 h-4 sm:w-5 sm:h-5 text-red-500"></i>
       元の位置
@@ -361,7 +361,7 @@
           // 誤差対策2: deltaが0（中心点そのもの）の時のゼロ除算/不定角を回避
           let theta = (Math.abs(x) < 1e-10 && Math.abs(y) < 1e-10) ? 0 : Math.atan2(y, x);
 
-          // 【追加】図形の反転・回転を球面方位角に適用する
+          // 図形の反転・回転を球面方位角に適用する
           if (currentFlipX) {
             theta = -theta; // 左右（経度方向）反転
           }
@@ -396,7 +396,7 @@
         return newRing.length >= 3 ? newRing : null;
       }).filter(ring => ring !== null);
       
-      // 【元の仕様に復元】中心緯度ベースのスケール計算のみ（元の場所でピッタリ100%になる）
+      // 中心緯度ベースのスケール計算
       const ratio = Math.cos(L_lat_rad) / Math.cos(C_lat_rad);
       scale = Math.pow(ratio, 2) * 100;
 
@@ -430,8 +430,21 @@
       optgroupJapan.appendChild(optionJapan);
 
       PREF_NAMES.forEach(name => {
+        // 島嶼部が広範囲な県については、分割した選択肢も追加する
         if (name === "東京都" || name === "鹿児島県" || name === "沖縄県") {
-          const parts = name === "東京都" ? ["東京都（本土）", "東京都（島嶼部）", "東京都（全体）"] :
+          // 【修正】東京都の島嶼部を細かく分割
+          const parts = name === "東京都" ? [
+                          "東京都（本土）", 
+                          "東京都（伊豆大島）", 
+                          "東京都（新島）", 
+                          "東京都（神津島）", 
+                          "東京都（三宅島）", 
+                          "東京都（八丈島）", 
+                          "東京都（小笠原諸島）", 
+                          "東京都（南鳥島）",
+                          "東京都（その他の島嶼部）",
+                          "東京都（全体）"
+                        ] :
                         name === "鹿児島県" ? ["鹿児島県（本土）", "鹿児島県（島嶼部）", "鹿児島県（全体）"] :
                         ["沖縄県（沖縄本島・周辺）", "沖縄県（先島・大東諸島）", "沖縄県（全体）"];
           parts.forEach(p => {
@@ -443,6 +456,7 @@
             }
           });
         } else {
+          // その他の県はそのまま追加
           if (regionDatabase[name]) {
             const option = document.createElement('option');
             option.value = name;
@@ -466,7 +480,7 @@
       L_lat = regionDatabase[name].center.lat;
       L_lon = regionDatabase[name].center.lon;
       
-      // 【追加】地域を変えたら回転・反転をリセットする
+      // 地域を変えたら回転・反転をリセットする
       resetTransform();
       
       // セレクトボックスの選択状態を合わせる
@@ -508,6 +522,7 @@
           let prefName = "不明";
           const vals = Object.values(f.properties).map(v => String(v));
           for (const name of PREF_NAMES) {
+            // "東京都"と"東京"などの揺れに対応
             if (vals.some(v => v === name || v === name.replace(/(都|府|県)$/, ''))) {
               prefName = name;
               break;
@@ -525,14 +540,36 @@
           allJapanRings.push(...optimizedRings);
 
           if (prefName !== "不明") {
+            // ① 元々の都道府県全体としての保存
             let allKey = (prefName === "東京都" || prefName === "鹿児島県" || prefName === "沖縄県") ? prefName + "（全体）" : prefName;
             if (!regionDatabase[allKey]) regionDatabase[allKey] = { rings: [] };
             regionDatabase[allKey].rings.push(...optimizedRings);
 
+            // ② 広域な島嶼部を持つ県については、緯度経度から分割して保存
             if (prefName === "東京都") {
               optimizedRings.forEach(ring => {
                 const bounds = calculateBoundsAndCenter([ring]);
-                let key = bounds.lat > 35.0 ? "東京都（本土）" : "東京都（島嶼部）";
+                // 【修正】緯度経度のバウンディングボックスを使って島を細かく分類
+                let key = "東京都（その他の島嶼部）";
+                
+                if (bounds.lat > 35.0) {
+                  key = "東京都（本土）";
+                } else if (bounds.lon > 153.0) {
+                  key = "東京都（南鳥島）"; // 南鳥島（東経153.9度付近）
+                } else if (bounds.lat > 34.65 && bounds.lat < 34.8) {
+                  key = "東京都（伊豆大島）";
+                } else if (bounds.lat > 34.32 && bounds.lat < 34.45) {
+                  key = "東京都（新島）"; // 式根島などもここに含まれる
+                } else if (bounds.lat > 34.15 && bounds.lat < 34.25) {
+                  key = "東京都（神津島）";
+                } else if (bounds.lat > 34.0 && bounds.lat < 34.15) {
+                  key = "東京都（三宅島）";
+                } else if (bounds.lat > 33.0 && bounds.lat < 33.2) {
+                  key = "東京都（八丈島）";
+                } else if (bounds.lat < 28.0 && bounds.lon > 140.0 && bounds.lon < 145.0) {
+                  key = "東京都（小笠原諸島）"; // 父島、母島、硫黄島などをまとめる
+                }
+                
                 if (!regionDatabase[key]) regionDatabase[key] = { rings: [] };
                 regionDatabase[key].rings.push(ring);
               });
@@ -561,9 +598,10 @@
           }
         }
         
+        // 日本全体はデータ量が膨大で重くなるため、極小の島を除外し、少し強めに間引いて軽量化
         const japanSimplifiedRings = allJapanRings
-          .filter(ring => ring.length > 25)
-          .map(ring => simplifyRing(ring, 0.005))
+          .filter(ring => ring.length > 25) 
+          .map(ring => simplifyRing(ring, 0.005)) 
           .filter(ring => ring.length >= 3);
 
         regionDatabase["日本全体"] = {
@@ -580,7 +618,7 @@
 
       } catch (e) {
         console.warn("Fetch failed, using fallback polygon.", e);
-        showToast('データの取得に失敗しました。内蔵データを使用します。');
+        showToast('高精細データの取得に失敗しました。内蔵データを使用します。');
         regionDatabase["北海道"] = {
           rings: fallbackPolygon,
           center: { lat: 43.4326, lon: 142.3648 }
@@ -599,7 +637,7 @@
       map = L.map('map', {
         center: [center.lat, center.lng],
         zoom: 6,
-        zoomControl: false
+        zoomControl: false // 右下に配置し直すためデフォルトをオフ
       });
       
       L.control.zoom({ position: 'bottomright' }).addTo(map);
@@ -657,7 +695,7 @@
         }
       });
 
-      // 【追加】図形操作パネルのトグルと操作イベント
+      // 図形操作パネルのトグルと操作イベント
       const btnToggleControls = document.getElementById('btn-toggle-controls');
       const controlsPanel = document.getElementById('controls-panel');
       const iconToggle = document.getElementById('icon-toggle-controls');
